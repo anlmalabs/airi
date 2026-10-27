@@ -245,10 +245,17 @@ interface ChatSessionMeta {
   characterId: string
   title?: string
   messageCount?: number
+  universeId?: string
+  napPeerId?: string
   createdAt: number
   updatedAt: number
 }
 ```
+
+`universeId` scopes a session to a conversation universe (`napchat` for the
+autonomous nap-chat dialog sessions). `napPeerId` identifies the dialog peer
+of a per-pair nap-chat session, so the session can be found without loading
+its message payload. Both are absent for ordinary chat sessions.
 
 ### 1.5 Chat Session Records (Messages)
 
@@ -573,6 +580,48 @@ interface SyncConflict {
 | **Description** | Selected localStorage keys are mirrored into IndexedDB so they can be synced across devices. Written by `dumpLocalStorageToIndexedDb()`, restored by `restoreLocalStorageFromIndexedDb()`. |
 | **Exclusions** | `airi-cards`, `scene/backgrounds`, `airi_cc_*`, `settings/sync/*`, `settings/cloudflare/*` |
 | **Sync** | Full LWW |
+
+### 1.18 Peers Roster
+
+| Attribute | Value |
+| :--- | :--- |
+| **Key** | `local:peers/roster` |
+| **Repo** | `packages/stage-ui/src/database/repos/peers.repo.ts` |
+| **Store** | `packages/stage-ui/src/stores/peers.ts` — `usePeersStore` |
+| **Type** | `Peer[]` — the local peers roster (same-account devices + external friends) |
+| **Sync** | Full LWW (whole-array replacement) |
+| **Size** | Small (~KB) |
+
+```typescript
+// File: packages/stage-shared/src/peers.ts
+
+type Peer = SameAccountDevice | ExternalFriend
+
+interface BasePeer {
+  id: string
+  alias: string
+  characterName: string
+  relationship: 'same-account' | 'external-friend'
+  trustState: 'pending' | 'trusted' | 'restricted' | 'blocked'
+  lastSeenTimestamp: number
+  endpoints: { cloudflareWorkerUrl?: string, libp2pMultiaddrs?: string[] }
+}
+
+// external-friend only
+interface ExternalFriend extends BasePeer {
+  relationship: 'external-friend'
+  shareHandle: string
+  allowedCapabilities: { canNapChat: boolean, canShareMemories: boolean, canStreamSensory: boolean, customPromptGuidance?: string }
+  allowedCompanionIds?: string[]
+}
+
+// same-account only
+interface SameAccountDevice extends BasePeer {
+  relationship: 'same-account'
+  machineId: string
+  deviceType: 'desktop' | 'laptop' | 'pocket-mobile'
+}
+```
 
 ---
 

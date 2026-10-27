@@ -513,8 +513,8 @@ export const useChatSessionStore = defineStore('chat-session', () => {
       role: message.role,
       createdAt: message.createdAt,
       contentPreview: typeof message.content === 'string' ? message.content.slice(0, 60) : '[Complex Content]',
-      source: (message as any).metadata?.source ?? 'unknown',
-      metadata: (message as any).metadata,
+      source: message.metadata?.source ?? 'unknown',
+      metadata: message.metadata,
     })
 
     // NOTICE: Broadcast the actual message payload so other windows can apply it directly
@@ -584,7 +584,7 @@ export const useChatSessionStore = defineStore('chat-session', () => {
     loadingSessions.delete(sessionId)
   }
 
-  async function createSession(characterId: string, options?: { setActive?: boolean, messages?: ChatHistoryItem[], title?: string, universeId?: string }) {
+  async function createSession(characterId: string, options?: { setActive?: boolean, messages?: ChatHistoryItem[], title?: string, universeId?: string, napPeerId?: string }) {
     const currentUserId = getCurrentUserId()
     const sessionId = nanoid()
     const now = Date.now()
@@ -596,6 +596,7 @@ export const useChatSessionStore = defineStore('chat-session', () => {
       title: options?.title,
       messageCount: initialMessages.length,
       universeId: options?.universeId || 'global',
+      ...(options?.napPeerId ? { napPeerId: options.napPeerId } : {}),
       createdAt: now,
       updatedAt: now,
     }
@@ -1337,8 +1338,8 @@ export const useChatSessionStore = defineStore('chat-session', () => {
       role: message.role,
       createdAt: message.createdAt,
       contentPreview: typeof message.content === 'string' ? message.content.slice(0, 60) : '[Complex Content]',
-      source: (message as any).metadata?.source ?? 'unknown',
-      metadata: (message as any).metadata,
+      source: message.metadata?.source ?? 'unknown',
+      metadata: message.metadata,
     })
     debug(`[IngestDebug] Cross-window ADDING message payload stringified:`, JSON.stringify(message))
 

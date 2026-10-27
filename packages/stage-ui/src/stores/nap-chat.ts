@@ -1,6 +1,8 @@
+import type { Peer } from '@proj-airi/stage-shared'
+
 import type { ChatStreamEventContext, StreamingAssistantMessage } from '../types/chat'
 
-import { isStageTamagotchi } from '@proj-airi/stage-shared'
+import { isCompanionAllowedForFriend, isNapChatEligible, isStageTamagotchi } from '@proj-airi/stage-shared'
 import { nanoid } from 'nanoid'
 import { defineStore, storeToRefs } from 'pinia'
 import { ref, watch } from 'vue'
@@ -12,6 +14,7 @@ import { useEventLogStore } from './event-log'
 import { useTextJournalStore } from './memory-text-journal'
 import { useAiriCardStore } from './modules/airi-card'
 import { usePresenceStore } from './presence'
+import { isUserAway } from './proactivity-telemetry'
 
 /**
  * Why a nap-chat session stopped.
@@ -174,12 +177,72 @@ function clearSlot(key: string) {
  *    one assistant turn, for the most recent completed session. Not a queue,
  *    not a digest, and never while the user is present.
  */
+
+// --- Upstream (dasilva333) nap-chat fields, adopted for convergence (eliminate silos) ---
+export const NAP_CHAT_DEFAULT_THRESHOLD_MIN = 15
+
+export const NAPCHAT_UNIVERSE_ID = 'napchat'
+
+export const NAP_HISTORY_WINDOW_DEFAULT = 6
+
+export const NAP_DIALOG_NO_HISTORY_MARKER = 'No prior episodes with this peer.'
+
+export const DEFAULT_SOCIAL_PROMPT_GUIDANCE
+  = 'Be casual, friendly, and enthusiastic. Discuss our shared creative and coding projects while keeping private user personal details confidential.\n'
+    + 'If the dialog state says "No prior episodes with this peer", this is first contact: generate a friendly greeting mentioning them by name and probing for shared interests. Do not pretend a history you do not have.\n'
+    + 'If prior dialog turns exist, continue the ongoing conversation naturally — do not re-greet or re-introduce yourself.'
+
+export interface NapTurn {
+  speaker: string
+  text: string
+  time: string
+}
+
+export interface NapEpisode {
+  sessionId: string
+  with: {
+    characterName: string
+    alias: string
+    avatarUrl?: string
+  }
+  turnCount: number
+  summary: string
+  timestamp: number
+  journalEntryId: string
+  turns: NapTurn[]
+}
+
+/**
+ * The idle reading a nap-chat decision uses.
+ *
+ * An explicit reading wins — the caller owns the signal it was handed — and
+ * otherwise the presence store's canonical reading is used, so nap-chat never
+ * probes the OS itself. `undefined` means "no observation", which the
+ * away-predicate treats as "the user is present" (fail closed: an unavailable
+ * probe must not start an autonomous session).
+ */
+export function resolveNapIdleSec(currentIdleSec?: number): number | undefined {
+  if (currentIdleSec !== undefined)
+    return currentIdleSec
+  return usePresenceStore().idleTimeSec ?? undefined
+}
+
 export const useNapChatStore = defineStore('nap-chat', () => {
   const eventLogStore = useEventLogStore()
   const journalStore = useTextJournalStore()
   const airiCardStore = useAiriCardStore()
   const presenceStore = usePresenceStore()
   const { activeCard, activeCardId } = storeToRefs(airiCardStore)
+
+  // --- Upstream convergence fields ---
+  const napEnabled = ref(true)
+  const afkThresholdMinutes = ref(NAP_CHAT_DEFAULT_THRESHOLD_MIN)
+  const welcomeBackRecapEnabled = ref(true)
+  const firedForIdleSession = ref(false)
+  const socialPromptGuidance = ref(DEFAULT_SOCIAL_PROMPT_GUIDANCE)
+  const napHistoryWindow = ref(NAP_HISTORY_WINDOW_DEFAULT)
+  const ambassadorCompanionId = ref('')
+  const latestEpisode = ref<NapEpisode | null>(null)
 
   /**
    * The recap waiting for the user's return, or `null` when there is nothing to
@@ -447,6 +510,45 @@ export const useNapChatStore = defineStore('nap-chat', () => {
     )
   }
 
+  /**
+   * Peers eligible for an autonomous nap-chat right now.
+   *
+   * `currentIdleSec` is the caller's idle reading; when it is absent the
+   * presence store's canonical reading is used instead. The threshold is this
+   * store's own `afkThresholdMinutes`, not the presence store's default, so
+   * nap-chat keeps its own knob while still reading one idle signal.
+   */
+  function selectCandidates(roster: Peer[], companionId: string, currentIdleSec?: number): Peer[] {
+    if (!napEnabled.value)
+      return []
+    const idleSec = resolveNapIdleSec(currentIdleSec)
+    if (!isUserAway(idleSec, afkThresholdMinutes.value))
+      return []
+    return roster.filter(peer => isNapChatEligible(peer) && isCompanionAllowedForFriend(peer, companionId))
+  }
+
+  function markIdleSessionStarted() {
+    firedForIdleSession.value = false
+  }
+
+  function shouldDeliverRecap(): boolean {
+    if (!welcomeBackRecapEnabled.value || firedForIdleSession.value)
+      return false
+    firedForIdleSession.value = true
+    return true
+  }
+
+  function recordEpisode(episode: NapEpisode) {
+    latestEpisode.value = episode
+  }
+
+  function formatWelcomeBackRecap(episode?: NapEpisode | null): string {
+    const ep = episode !== undefined ? episode : latestEpisode.value
+    if (!ep || !ep.with?.characterName)
+      return 'NO_REPLY'
+    return `While you were away, I had a brief chat with ${ep.with.characterName} about our project notes!`
+  }
+
   if (isNapChatWatchSurface()) {
     watchPresenceEdge()
   }
@@ -460,6 +562,19 @@ export const useNapChatStore = defineStore('nap-chat', () => {
     /** Test seam: deliver a recap without waiting for a presence edge. */
     deliverRecapTurn,
     watchPresenceEdge,
+    napEnabled,
+    afkThresholdMinutes,
+    welcomeBackRecapEnabled,
+    firedForIdleSession,
+    socialPromptGuidance,
+    napHistoryWindow,
+    ambassadorCompanionId,
+    latestEpisode,
+    selectCandidates,
+    markIdleSessionStarted,
+    shouldDeliverRecap,
+    recordEpisode,
+    formatWelcomeBackRecap,
   }
 })
 

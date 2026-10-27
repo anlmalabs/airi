@@ -7,6 +7,13 @@ export interface ChatSessionMeta {
   title?: string
   messageCount?: number
   universeId?: string
+  /**
+   * Nap-chat dialog peer. Set for per-pair dialog sessions in the `napchat`
+   * universe (one session per companion↔peer pair; a future group chat can
+   * key this by group id instead). Lets nap sessions be found without
+   * loading message payloads, and lets the session picker badge them.
+   */
+  napPeerId?: string
   createdAt: number
   updatedAt: number
   pendingJournalMoment?: {

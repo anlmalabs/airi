@@ -196,9 +196,9 @@ boolean cannot express "optional, and still show the field".
 **Use the helpers** in `libs/providers/types.ts`, never a raw comparison:
 
 ```ts
-isKeylessProvider(x)      // strictly keyless, no field
-isOptionalKeyProvider(x)  // works keyless, field still applies
-keylessOrOptionalKey(x)   // either → usable without a saved key
+isKeylessProvider(x) // strictly keyless, no field
+isOptionalKeyProvider(x) // works keyless, field still applies
+keylessOrOptionalKey(x) // either → usable without a saved key
 ```
 
 The two predicates are deliberately distinct because they answer different
@@ -403,6 +403,13 @@ Implementation guide: [Director orchestration](../.agents/skills/airi-director-o
 
 ### Proactivity / Heartbeats
 - **Store**: `packages/stage-ui/src/stores/proactivity.ts` — idle heartbeat loop, sensor compilation, registered tool resolution
+
+### Peers & Nap-chat
+- **Peer types & predicates**: `packages/stage-shared/src/peers.ts` — `Peer` (`SameAccountDevice` | `ExternalFriend`), `isNapChatEligible`, `isCompanionAllowedForFriend`, `resolveAmbassadorTagline`
+- **Roster store**: `packages/stage-ui/src/stores/peers.ts` — `usePeersStore` (`roster`, `friends`, `devices`) | **Repo**: `packages/stage-ui/src/database/repos/peers.repo.ts` — `local:peers/roster`
+- **Nap-chat state**: `packages/stage-ui/src/stores/nap-chat.ts` — `useNapChatStore` (controls, candidate selection, recap delivery) | **Coordinator**: `packages/stage-ui/src/stores/nap-chat-coordinator.ts` — `useNapChatCoordinatorStore` (trigger evaluation + turn state machine)
+- **Dialog sessions**: per-pair nap-chat sessions live in the `napchat` universe (`universeId`), keyed by `napPeerId` on `ChatSessionMeta` — see `packages/stage-ui/src/stores/chat/session-store.ts` `createSession`
+- **Idle predicate**: `packages/stage-ui/src/stores/proactivity-telemetry.ts` — `isUserAway(currentIdleSec?, afkThresholdMinutes)` (pure; an absent reading means the user is present)
 
 ---
 
