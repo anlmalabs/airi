@@ -4,6 +4,7 @@ import type { InferOutput } from 'valibot'
 import type { globalAppConfigSchema } from '../../configs/global'
 import type { Config } from '../../libs/electron/persistence'
 import type { I18n } from '../../libs/i18n'
+import type { AcpAgentsManager } from '../../services/airi/acp-agents'
 import type { ServerChannel } from '../../services/airi/channel-server'
 import type { McpStdioManager } from '../../services/airi/mcp-servers'
 import type { AutoUpdater } from '../../services/electron/auto-updater'
@@ -35,6 +36,7 @@ export async function setupMainWindow(params: {
   onWindowCreated?: (window: BrowserWindow) => void
   serverChannel: ServerChannel
   mcpStdioManager: McpStdioManager
+  acpAgentsManager: AcpAgentsManager
   i18n: I18n
   onboardingWindowManager: OnboardingWindowManager
   appConfig: Config<typeof globalAppConfigSchema>
@@ -171,6 +173,7 @@ export async function setupMainWindow(params: {
     autoUpdater: params.autoUpdater,
     serverChannel: params.serverChannel,
     mcpStdioManager: params.mcpStdioManager,
+    acpAgentsManager: params.acpAgentsManager,
     i18n: params.i18n,
     onboardingWindowManager: params.onboardingWindowManager,
     appConfig: params.appConfig,

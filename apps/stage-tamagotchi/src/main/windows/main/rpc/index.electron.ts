@@ -1,4 +1,5 @@
 import type { I18n } from '../../../libs/i18n'
+import type { AcpAgentsManager } from '../../../services/airi/acp-agents'
 import type { ServerChannel } from '../../../services/airi/channel-server'
 import type { McpStdioManager } from '../../../services/airi/mcp-servers'
 import type { AutoUpdater } from '../../../services/electron/auto-updater'
@@ -24,6 +25,7 @@ import {
   electronStartDraggingWindow,
   noticeWindowEventa,
 } from '../../../../shared/eventa'
+import { createAcpAgentsService } from '../../../services/airi/acp-agents'
 import { createMcpServersService } from '../../../services/airi/mcp-servers'
 import { createOnboardingService } from '../../../services/airi/onboarding'
 import { createWidgetsService } from '../../../services/airi/widgets'
@@ -40,6 +42,7 @@ export async function setupMainWindowElectronInvokes(params: {
   autoUpdater: AutoUpdater
   serverChannel: ServerChannel
   mcpStdioManager: McpStdioManager
+  acpAgentsManager: AcpAgentsManager
   i18n: I18n
   onboardingWindowManager: OnboardingWindowManager
   appConfig: any
@@ -55,6 +58,7 @@ export async function setupMainWindowElectronInvokes(params: {
   createWidgetsService({ context, widgetsManager: params.widgetsManager, window: params.window })
   createAutoUpdaterService({ context, window: params.window, service: params.autoUpdater })
   createMcpServersService({ context, manager: params.mcpStdioManager })
+  createAcpAgentsService({ context, manager: params.acpAgentsManager })
   createOnboardingService({ context, onboardingWindowManager: params.onboardingWindowManager })
   createDockModeService({ context, window: params.window })
 

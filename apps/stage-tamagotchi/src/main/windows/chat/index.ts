@@ -1,6 +1,7 @@
 import type { globalAppConfigSchema } from '../../configs/global'
 import type { Config } from '../../libs/electron/persistence'
 import type { I18n } from '../../libs/i18n'
+import type { AcpAgentsManager } from '../../services/airi/acp-agents'
 import type { ServerChannel } from '../../services/airi/channel-server'
 import type { McpStdioManager } from '../../services/airi/mcp-servers'
 import type { SettingsWindowManager } from '../settings'
@@ -37,6 +38,7 @@ export function setupChatWindowReusableFunc(params: {
   widgetsManager: WidgetsWindowManager
   serverChannel: ServerChannel
   mcpStdioManager: McpStdioManager
+  acpAgentsManager: AcpAgentsManager
   i18n: I18n
   appConfig: Config<typeof globalAppConfigSchema>
 }): ChatWindowManager {
@@ -213,6 +215,7 @@ export function setupChatWindowReusableFunc(params: {
       widgetsManager: params.widgetsManager,
       serverChannel: params.serverChannel,
       mcpStdioManager: params.mcpStdioManager,
+      acpAgentsManager: params.acpAgentsManager,
       i18n: params.i18n,
     })
 

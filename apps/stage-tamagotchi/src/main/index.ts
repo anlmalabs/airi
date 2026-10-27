@@ -63,6 +63,7 @@ import { emitAppBeforeQuit, emitAppReady, emitAppWindowAllClosed } from './libs/
 import { setElectronMainDirname } from './libs/electron/location'
 import { flushAllConfigs } from './libs/electron/persistence'
 import { createI18n } from './libs/i18n'
+import { createAcpAgentsService, setupAcpAgentsManager } from './services/airi/acp-agents'
 import { createAgenticService, setupAgenticService } from './services/airi/agentic'
 import { createServerChannelService, setupServerChannel } from './services/airi/channel-server'
 import { setupDiscordService } from './services/airi/discord'
@@ -390,6 +391,9 @@ app.whenReady().then(async () => {
   const mcpStdioManager = injeca.provide('modules:mcp-stdio-manager', {
     build: async () => setupMcpStdioManager(),
   })
+  const acpAgentsManager = injeca.provide('modules:acp-agents-manager', {
+    build: async () => setupAcpAgentsManager(),
+  })
 
   const libp2p = injeca.provide('modules:libp2p', {
     dependsOn: { lifecycle },
@@ -429,12 +433,12 @@ app.whenReady().then(async () => {
   })
 
   const settingsWindow = injeca.provide('windows:settings', {
-    dependsOn: { widgetsManager, beatSync, autoUpdater, devtoolsMarkdownStressWindow, serverChannel, mcpStdioManager, i18n },
+    dependsOn: { widgetsManager, beatSync, autoUpdater, devtoolsMarkdownStressWindow, serverChannel, mcpStdioManager, acpAgentsManager, i18n },
     build: async ({ dependsOn }) => setupSettingsWindowReusableFunc(dependsOn),
   })
 
   const chatWindow = injeca.provide('windows:chat', {
-    dependsOn: { widgetsManager, serverChannel, mcpStdioManager, i18n, appConfig, settingsWindow },
+    dependsOn: { widgetsManager, serverChannel, mcpStdioManager, acpAgentsManager, i18n, appConfig, settingsWindow },
     build: ({ dependsOn }) => setupChatWindowReusableFunc(dependsOn),
   })
 
@@ -451,7 +455,7 @@ app.whenReady().then(async () => {
   const splashWindow = injeca.provide('windows:splash', () => splashWindowManager)
 
   const mainWindow = injeca.provide('windows:main', {
-    dependsOn: { settingsWindow, stageWindow, chatWindow, widgetsManager, noticeWindow, beatSync, autoUpdater, serverChannel, mcpStdioManager, i18n, onboardingWindowManager, appConfig },
+    dependsOn: { settingsWindow, stageWindow, chatWindow, widgetsManager, noticeWindow, beatSync, autoUpdater, serverChannel, mcpStdioManager, acpAgentsManager, i18n, onboardingWindowManager, appConfig },
     // NOTICE: Initial show is deferred until `electronSplashDismiss` fires.
     build: async ({ dependsOn }) => setupMainWindow({ ...dependsOn, deferInitialShow: true }),
   })
@@ -479,7 +483,7 @@ app.whenReady().then(async () => {
   })
 
   injeca.invoke({
-    dependsOn: { mainWindow, tray, serverChannel, pluginHost, mcpStdioManager, onboardingWindow: onboardingWindowManager, appConfig, i18n, captionWindow, stageWindow, splashWindow, chatWindow, customizerWindow, beatSync, libp2p, agenticOs },
+    dependsOn: { mainWindow, tray, serverChannel, pluginHost, mcpStdioManager, acpAgentsManager, onboardingWindow: onboardingWindowManager, appConfig, i18n, captionWindow, stageWindow, splashWindow, chatWindow, customizerWindow, beatSync, libp2p, agenticOs },
     callback: (deps) => {
       // NOTICE: `stage:capture-window` ghosts the stage window (show inactive → hide) purely to
       // produce a screenshot. Those synthetic show/hide events must not be treated as user-driven
@@ -508,6 +512,7 @@ app.whenReady().then(async () => {
 
       createServerChannelService({ serverChannel: deps.serverChannel })
       createMcpServersService({ context, manager: deps.mcpStdioManager })
+      createAcpAgentsService({ context, manager: deps.acpAgentsManager })
       createI18nService({ context, window: deps.mainWindow, i18n: deps.i18n })
       createMicToggleService({ context, window: deps.mainWindow })
       createVisionService({ context })

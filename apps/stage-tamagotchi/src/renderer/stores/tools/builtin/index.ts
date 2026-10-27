@@ -5,6 +5,7 @@ import { tryGetMcpToolBridge } from '@proj-airi/stage-ui/stores/mcp-tool-bridge'
 import { useArtistryStore } from '@proj-airi/stage-ui/stores/modules/artistry'
 import { useStickersStore } from '@proj-airi/stage-ui/stores/stickers'
 
+import { acpTools } from './acp'
 import { generateMotionTools } from './generate-motion'
 import { imageJournalTools } from './image-journal'
 import { mcpTools } from './mcp'
@@ -31,6 +32,18 @@ export async function builtinTools(): Promise<Tool[]> {
     debug('[builtinTools] 🔌 MCP bridge not found, skipping MCP tools.')
   }
 
+  let hasAcpAgents = false
+  try {
+    const { useElectronEventaInvoke } = await import('@proj-airi/electron-vueuse')
+    const { electronAcpGetRuntimeStatus } = await import('../../../../shared/eventa')
+    const getStatus = useElectronEventaInvoke(electronAcpGetRuntimeStatus)
+    const acpStatus = await getStatus() as { agents?: unknown[] }
+    hasAcpAgents = (acpStatus.agents?.length || 0) > 0
+  }
+  catch (err) {
+    debug('[builtinTools] 🔌 Failed to fetch ACP status, skipping ACP tools:', err)
+  }
+
   const toolPromises: Promise<Tool[]>[] = []
 
   // Always register in list (filtered out by llmStore if not allowed)
@@ -53,6 +66,12 @@ export async function builtinTools(): Promise<Tool[]> {
   if (hasMcpServers) {
     debug('[builtinTools] 🔌 MCP Servers found, enabling mcp tools.')
     toolPromises.push(mcpTools())
+  }
+
+  // ACP Agents
+  if (hasAcpAgents) {
+    debug('[builtinTools] 🤖 ACP Agents found, enabling acp tools.')
+    toolPromises.push(acpTools())
   }
 
   const groups = await Promise.all(toolPromises)

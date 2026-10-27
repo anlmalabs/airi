@@ -1,4 +1,5 @@
 import type { I18n } from '../../libs/i18n'
+import type { AcpAgentsManager } from '../../services/airi/acp-agents'
 import type { ServerChannel } from '../../services/airi/channel-server'
 import type { McpStdioManager } from '../../services/airi/mcp-servers'
 import type { AutoUpdater } from '../../services/electron/auto-updater'
@@ -30,6 +31,7 @@ export function setupSettingsWindowReusableFunc(params: {
   onWindowCreated?: (window: BrowserWindow) => void
   serverChannel: ServerChannel
   mcpStdioManager: McpStdioManager
+  acpAgentsManager: AcpAgentsManager
   i18n: I18n
 }): SettingsWindowManager {
   const rendererBase = baseUrl(resolve(getElectronMainDirname(), '..', 'renderer'))
@@ -69,6 +71,7 @@ export function setupSettingsWindowReusableFunc(params: {
       devtoolsMarkdownStressWindow: params.devtoolsMarkdownStressWindow,
       serverChannel: params.serverChannel,
       mcpStdioManager: params.mcpStdioManager,
+      acpAgentsManager: params.acpAgentsManager,
       i18n: params.i18n,
     })
 

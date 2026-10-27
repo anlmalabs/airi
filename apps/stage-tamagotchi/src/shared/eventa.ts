@@ -481,3 +481,72 @@ export {
   discordServiceSummon,
 } from '@proj-airi/stage-shared'
 export * from '@proj-airi/stage-shared/shortcuts'
+
+export type ElectronAcpPermissionPolicy = 'prompt' | 'auto-read' | 'auto-all'
+
+export interface ElectronAcpAgentConfig {
+  command: string
+  args?: string[]
+  env?: Record<string, string>
+  cwd?: string
+  enabled?: boolean
+  permissionPolicy?: ElectronAcpPermissionPolicy
+}
+
+export interface ElectronAcpConfigFile {
+  agents: Record<string, ElectronAcpAgentConfig>
+}
+
+export interface ElectronAcpRuntimeStatus {
+  path: string
+  agents: Array<{
+    name: string
+    state: 'running' | 'stopped' | 'error'
+    command: string
+    args: string[]
+    pid: number | null
+    lastError?: string
+  }>
+  updatedAt: number
+}
+
+export interface ElectronAcpSessionStatus {
+  id: string
+  agentName: string
+  acpSessionId: string
+  cwd: string
+}
+
+export interface ElectronAcpApplyResult {
+  path: string
+  started: Array<{ name: string }>
+  failed: Array<{ name: string, error: string }>
+  skipped: Array<{ name: string, reason: string }>
+}
+
+export const electronAcpOpenConfigFile = defineInvokeEventa<{ path: string }>('eventa:invoke:electron:acp:open-config-file')
+export const electronAcpApplyAndRestart = defineInvokeEventa<ElectronAcpApplyResult>('eventa:invoke:electron:acp:apply-and-restart')
+export const electronAcpGetRuntimeStatus = defineInvokeEventa<ElectronAcpRuntimeStatus>('eventa:invoke:electron:acp:get-runtime-status')
+export const electronAcpGetConfig = defineInvokeEventa<ElectronAcpConfigFile>('eventa:invoke:electron:acp:get-config')
+export const electronAcpUpdateConfig = defineInvokeEventa<void, Partial<ElectronAcpConfigFile>>('eventa:invoke:electron:acp:update-config')
+export const electronAcpCreateSession = defineInvokeEventa<ElectronAcpSessionStatus, { agentName: string, cwd?: string }>('eventa:invoke:electron:acp:create-session')
+export const electronAcpPrompt = defineInvokeEventa<{ stopReason: string, finalText: string }, { sessionId: string, text: string }>('eventa:invoke:electron:acp:prompt')
+export const electronAcpCancel = defineInvokeEventa<void, { sessionId: string }>('eventa:invoke:electron:acp:cancel')
+export const electronAcpListSessions = defineInvokeEventa<ElectronAcpSessionStatus[]>('eventa:invoke:electron:acp:list-sessions')
+export const electronAcpCloseSession = defineInvokeEventa<void, { sessionId: string }>('eventa:invoke:electron:acp:close-session')
+export const electronAcpRespondPermission = defineInvokeEventa<void, { requestId: string, outcome: 'approve' | 'deny' }>('eventa:invoke:electron:acp:respond-permission')
+
+export interface ElectronAcpSessionUpdatePayload {
+  sessionId: string
+  update: Record<string, unknown>
+}
+
+export interface ElectronAcpPermissionRequestPayload {
+  requestId: string
+  sessionId: string
+  toolCall: Record<string, unknown>
+  options: Array<{ optionId: string, name?: string, kind?: string }>
+}
+
+export const electronAcpSessionUpdate = defineEventa<ElectronAcpSessionUpdatePayload>('eventa:event:electron:acp:session-update')
+export const electronAcpPermissionRequest = defineEventa<ElectronAcpPermissionRequestPayload>('eventa:event:electron:acp:permission-request')
