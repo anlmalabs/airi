@@ -164,3 +164,6 @@ personal_airi/
 .build/
 **/CoreLLMKit/.build/
 **/CoreLLMKit/Package.resolved
+
+# omp local config
+.omp/config.yml

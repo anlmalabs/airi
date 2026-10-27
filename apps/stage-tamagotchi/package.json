@@ -37,6 +37,7 @@
     "smoke:linux-window-render": "NODE_OPTIONS='--experimental-websocket' tsx scripts/linux-window-render-smoke.ts"
   },
   "dependencies": {
+    "@agentclientprotocol/sdk": "catalog:",
     "@chainsafe/libp2p-gossipsub": "catalog:",
     "@chainsafe/libp2p-noise": "catalog:",
     "@chainsafe/libp2p-yamux": "catalog:",

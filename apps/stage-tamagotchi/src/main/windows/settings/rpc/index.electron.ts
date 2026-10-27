@@ -1,6 +1,7 @@
 import type { BrowserWindow } from 'electron'
 
 import type { I18n } from '../../../libs/i18n'
+import type { AcpAgentsManager } from '../../../services/airi/acp-agents'
 import type { ServerChannel } from '../../../services/airi/channel-server'
 import type { McpStdioManager } from '../../../services/airi/mcp-servers'
 import type { AutoUpdater } from '../../../services/electron/auto-updater'
@@ -12,6 +13,7 @@ import { createContext } from '@moeru/eventa/adapters/electron/main'
 import { ipcMain } from 'electron'
 
 import { electronOpenDevtoolsWindow, electronOpenSettingsDevtools } from '../../../../shared/eventa'
+import { createAcpAgentsService } from '../../../services/airi/acp-agents'
 import { createMcpServersService } from '../../../services/airi/mcp-servers'
 import { createWidgetsService } from '../../../services/airi/widgets'
 import { createAutoUpdaterService } from '../../../services/electron'
@@ -24,6 +26,7 @@ export async function setupSettingsWindowInvokes(params: {
   devtoolsMarkdownStressWindow: DevtoolsWindowManager
   serverChannel: ServerChannel
   mcpStdioManager: McpStdioManager
+  acpAgentsManager: AcpAgentsManager
   i18n: I18n
 }) {
   // TODO: once we refactored eventa to support window-namespaced contexts,
@@ -38,6 +41,7 @@ export async function setupSettingsWindowInvokes(params: {
   createWidgetsService({ context, widgetsManager: params.widgetsManager, window: params.settingsWindow })
   createAutoUpdaterService({ context, window: params.settingsWindow, service: params.autoUpdater })
   createMcpServersService({ context, manager: params.mcpStdioManager })
+  createAcpAgentsService({ context, manager: params.acpAgentsManager })
 
   defineInvokeHandler(context, electronOpenSettingsDevtools, async () => params.settingsWindow.webContents.openDevTools({ mode: 'detach' }))
   defineInvokeHandler(context, electronOpenDevtoolsWindow, async (payload) => {
