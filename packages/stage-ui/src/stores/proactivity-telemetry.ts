@@ -92,6 +92,18 @@ export function evaluateHeartbeatGating(
   return { allowed: true }
 }
 
+/**
+ * Whether the user is away from the desk, given an explicit idle reading.
+ *
+ * Pure by design: the caller owns the idle signal, so the predicate is
+ * testable without a presence store. An absent reading (`undefined`) means
+ * "no observation", which is treated as the user being present — the same
+ * rule the presence store applies when its probe has not answered yet.
+ */
+export function isUserAway(currentIdleSec?: number, afkThresholdMinutes = 5): boolean {
+  return (currentIdleSec ?? 0) >= afkThresholdMinutes * 60
+}
+
 export interface PipeBusyState {
   sending?: boolean
   activeSpokenText?: string | null
