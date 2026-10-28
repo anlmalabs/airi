@@ -1224,7 +1224,7 @@ Persisted Three.js scene state — camera rig, model transform, lighting, and sk
 | `lhack_gemini_res` | `string` | `stores/lhack.ts` |
 | `airi_cc_{sha256hash}` | `string` (JSON, cached color data) | `libs/character-media-resolver.ts` |
 | `airi:debug` | `'1'` (string flag) | `stores/providers/helpers.ts` |
-
+| `local:peers/device-keypair` | `{ publicKeyHex, privateKeyJwk, createdAt }` (JSON string) | `packages/stage-ui/src/composables/use-peer-embassy.ts` |
 ---
 
 ## 5. IndexedDB — Search Index (Separate DB)

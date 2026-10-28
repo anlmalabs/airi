@@ -25,6 +25,7 @@
     "./libp2p": "./src/libp2p.ts",
     "./agentic": "./src/agentic.ts",
     "./webgpu": "./src/webgpu/index.ts",
+    "./transport": "./src/transport.ts",
     "./transport-adapter": "./src/transport-adapter.ts",
     "./transport-registry": "./src/transport-registry.ts"
   },

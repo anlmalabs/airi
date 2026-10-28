@@ -555,8 +555,10 @@ function publishCompanionShare(card: CompanionShareInput): CompanionShareCard | 
   // Capture the publisher once so the adapter does not re-resolve it (avoids a
   // hostPeerId / emitting-node mismatch on a concurrent node restart).
   currentMeshPublisher = publisher
-  void companionTransportAdapter
-    .publish(COMPANION_TOPIC, new TextEncoder().encode(JSON.stringify(published)))
+  void companionTransportAdapter.publish!(
+    COMPANION_TOPIC,
+    new TextEncoder().encode(JSON.stringify(published)),
+  )
     .catch((err: unknown) => log.withError(err).warn('Failed to publish companion share'))
     .finally(() => {
       currentMeshPublisher = null

@@ -21,7 +21,7 @@ export function createTransportRegistry(): TransportRegistry {
   return {
     register(adapter: TransportAdapter): void {
       adapters.set(adapter.id, adapter)
-      relayFlags.set(adapter.id, adapter.capabilities.requiresExternalRelay)
+      relayFlags.set(adapter.id, adapter.capabilities?.requiresExternalRelay ?? false)
     },
 
     get(id: string): TransportAdapter | undefined {
@@ -37,12 +37,17 @@ export function createTransportRegistry(): TransportRegistry {
       if (!adapter) {
         throw new Error(`Unknown transport adapter: ${id}`)
       }
-      if (sovereign && relayFlags.get(id) === true) {
+      if (sovereign && (relayFlags.get(id) ?? false)) {
         throw new Error(
           `Transport adapter '${id}' requires an external relay and is refused in sovereign mode`,
         )
       }
-      await adapter.initialize()
+      if (adapter.initialize) {
+        await adapter.initialize()
+      }
+      else {
+        await adapter.start()
+      }
     },
   }
 }

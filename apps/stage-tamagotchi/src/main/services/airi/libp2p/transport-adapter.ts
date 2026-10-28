@@ -1,25 +1,26 @@
 import type {
   TransportAdapter,
   TransportCapabilities,
-} from '@proj-airi/stage-shared/transport-adapter'
+  TransportHandler,
+  TransportStatus,
+} from '@proj-airi/stage-shared/transport'
 
 /**
  * Dependencies the libp2p transport adapter delegates to. Injecting them keeps
  * the adapter pure and unit-testable without spinning up a real libp2p node;
  * production wiring supplies the live node's functions (see `index.ts`).
- */
-/**
- * Dependencies the libp2p transport adapter delegates to. Each member MUST be
- * a closure or a bound method: the adapter stores the function references and
- * invokes them unbound, so passing an unbound method (e.g.
- * `deps: { initialize: node.start }`) loses `this` and throws in strict mode.
- * Wrap such calls in an arrow function when wiring production code.
+ *
+ * `publish`/`subscribe` are the pub/sub surface; `start`/`stop`/`sendToPeer`
+ * are optional upstream-aligned helpers. When omitted, the adapter degrades to
+ * pub/sub only (status reports 'connected' after start).
  */
 export interface Libp2pTransportAdapterDeps {
   initialize: () => Promise<void>
   dispose: () => Promise<void>
   publish: (topic: string, data: Uint8Array) => Promise<void>
   subscribe: (topic: string, handler: (data: Uint8Array) => void) => () => void
+  /** Optional: resolve a peer's worker URL / direct dial for sendToPeer. */
+  sendToPeer?: (peerId: string, topic: string, payload: unknown) => Promise<boolean>
 }
 
 export interface Libp2pTransportAdapterOptions {
@@ -35,14 +36,6 @@ const DEFAULT_CAPABILITIES: TransportCapabilities = {
   requiresExternalRelay: false,
 }
 
-/**
- * Wrap a live libp2p node behind the shared {@link TransportAdapter} contract.
- *
- * The adapter is the only place where libp2p-specific types cross the seam: it
- * converts the contract's `Uint8Array` payloads to/from whatever the node
- * speaks, and hides node lifecycle behind `initialize`/`dispose`. Consumers
- * depend on `TransportAdapter` and never on libp2p types.
- */
 export function createLibp2pTransportAdapter(
   options: Libp2pTransportAdapterOptions,
 ): TransportAdapter {
@@ -50,14 +43,59 @@ export function createLibp2pTransportAdapter(
     ...DEFAULT_CAPABILITIES,
     ...options.capabilities,
   })
-  const { initialize, dispose, publish, subscribe } = options.deps
+  const { initialize, dispose, publish, subscribe, sendToPeer } = options.deps
 
-  return {
+  let status: TransportStatus = 'disconnected'
+
+  const adapter: TransportAdapter = {
     id: 'libp2p-mesh',
+    get status() { return status },
     capabilities,
+    // Upstream-aligned lifecycle
+    start: async () => { await initialize(); status = 'connected' },
+    stop: async () => { await dispose(); status = 'disconnected' },
+    // Peer-addressed delivery (gossipsub has no native peer routing; fall back to publish)
+    sendToPeer: async (peerId, topic, payload) => {
+      if (sendToPeer)
+        return sendToPeer(peerId, topic, payload)
+      try {
+        await publish(topic, new TextEncoder().encode(JSON.stringify(payload)))
+        return true
+      }
+      catch {
+        return false
+      }
+    },
+    broadcast: async (topic, payload) => {
+      const data = payload instanceof Uint8Array
+        ? payload
+        : new TextEncoder().encode(JSON.stringify(payload))
+      await publish(topic, data)
+    },
+    subscribe: async <T>(topic: string, handler: TransportHandler<T>) => {
+      const inner = (data: Uint8Array) => {
+        let parsed: unknown = data
+        try { parsed = JSON.parse(new TextDecoder().decode(data)) }
+        catch { /* keep raw */ }
+        handler({ topic, payload: parsed as T, senderId: 'mesh', timestamp: Date.now() })
+      }
+      // The libp2p subscriber hands raw bytes; wrap so handler gets a TransportMessage.
+      const unsub = subscribe(topic, (raw) => {
+        inner(raw)
+      })
+      return unsub
+    },
+    // Fork extras
     initialize,
     dispose,
-    publish,
-    subscribe,
+    publish: async (topic, payload) => publish(topic, payload),
   }
+
+  // Keep status in sync with initialize/dispose callers that bypass start/stop.
+  const origInit = initialize
+  const origDispose = dispose
+  adapter.initialize = async () => { await origInit(); status = 'connected' }
+  adapter.dispose = async () => { await origDispose(); status = 'disconnected' }
+
+  return adapter
 }
