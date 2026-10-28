@@ -93,7 +93,7 @@ export function createLayaAdapter(workerUrl?: string | URL): LayaAdapter {
           const info = await consumeLoadStream(stream, (p) => {
             updateInferenceStatus(MODEL_NAMES.LAYA, { progress: p })
             options?.onProgress?.(p)
-          }).catch((error) => {
+          }).catch((error: unknown) => {
             if (options?.signal?.aborted)
               throw new InferenceAbortError(typeof options.signal.reason === 'string' ? options.signal.reason : undefined)
             throw error
@@ -111,7 +111,7 @@ export function createLayaAdapter(workerUrl?: string | URL): LayaAdapter {
           throw error
         }
       })
-    }).catch((error) => {
+    }).catch((error: unknown) => {
       if ((error as Error)?.name === 'AbortError')
         throw error
       host.handleWorkerError(error instanceof Error ? error : new Error(String(error)))
@@ -164,7 +164,7 @@ export function createLayaAdapter(workerUrl?: string | URL): LayaAdapter {
         host.setPhase('error')
         throw error
       }
-    }).catch((error) => {
+    }).catch((error: unknown) => {
       if ((error as Error)?.name === 'AbortError')
         throw error
       if (errorMessageFrom(error)?.includes('timed out') || (error as Error)?.name === 'TimeoutError')

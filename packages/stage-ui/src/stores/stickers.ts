@@ -1,3 +1,5 @@
+import type { BackgroundRemovalAdapter } from '../libs/inference/adapters/background-removal'
+
 import localforage from 'localforage'
 
 import { useIntervalFn, useLocalStorage } from '@vueuse/core'
@@ -7,7 +9,11 @@ import { computed, ref } from 'vue'
 import * as Pinia from 'pinia'
 
 import { chatStickers } from '../assets/stickers'
+import { createBackgroundRemovalAdapter } from '../libs/inference/adapters/background-removal'
+import { applyAlphaMask, blobToImageData, imageDataToPngBlob } from '../libs/stickers/image-convert'
 import { useAiriCardStore } from './modules/airi-card'
+
+export { chatStickers }
 
 export interface StickerMetadata {
   id: string
@@ -29,6 +35,33 @@ export interface StickerPlacement {
   expiresAt?: number
 }
 
+export interface BackgroundRemovalOptions {
+  signal?: AbortSignal
+  sensitivity?: number
+  onProgress?: (phase: 'loading-model' | 'segmenting', percent?: number) => void
+}
+
+export type CutoutBlob = Blob & {
+  maskData?: Uint8Array
+  sourceImageData?: ImageData
+}
+
+const KNOWN_STICKER_PREFIXES = new Set(['airi', 'lupin', 'character'])
+
+function tokenizeStickerId(id: string): string[] {
+  return id.toLowerCase().split(/[\s_-]+/).filter(Boolean)
+}
+
+function stripKnownStickerPrefix(tokens: string[]): string[] {
+  if (tokens.length > 1 && KNOWN_STICKER_PREFIXES.has(tokens[0]))
+    return tokens.slice(1)
+  return tokens
+}
+
+function normalizeStickerKey(id: string): string {
+  return tokenizeStickerId(id).join('-')
+}
+
 export const useStickersStore = Pinia.defineStore('stickers', () => {
   // Persisted metadata list
   const libraryMetadata = useLocalStorage<StickerMetadata[]>('stickers/library-v2', [])
@@ -38,7 +71,7 @@ export const useStickersStore = Pinia.defineStore('stickers', () => {
    */
   const currentLibrary = computed(() => {
     const airiCardStore = useAiriCardStore()
-    return libraryMetadata.value.filter(s => s.characterId === airiCardStore.activeCardId)
+    return libraryMetadata.value.filter(s => !s.characterId || s.characterId === airiCardStore.activeCardId)
   })
 
   // Reactive state for active instances on screen
@@ -50,12 +83,79 @@ export const useStickersStore = Pinia.defineStore('stickers', () => {
   // Cache for object URLs to avoid recreating them constantly
   const objectUrlCache = new Map<string, string>()
 
-  // Pruning interval for expired stickers
-  if (typeof window !== 'undefined') {
-    setInterval(() => {
-      const now = Date.now()
-      activePlacements.value = activePlacements.value.filter(p => !p.expiresAt || p.expiresAt > now)
-    }, 1000)
+  /**
+   * Resolve a model-emitted sticker id to a catalog id.
+   * Order: exact match, normalized exact (_/-/case-insensitive/whitespace),
+   * exact label/description match, then token-overlap fuzzy on prefix-stripped tokens.
+   */
+  function resolveStickerId(rawId: string): string | undefined {
+    const raw = rawId?.trim()
+    if (!raw)
+      return undefined
+
+    if (chatStickers.some(s => s.id === raw))
+      return raw
+
+    let customIds: string[] = []
+    try {
+      const airiCardStore = useAiriCardStore()
+      customIds = Object.keys(airiCardStore.activeCard?.extensions?.airi?.stickers || {})
+      if (customIds.includes(raw))
+        return raw
+    }
+    catch {}
+
+    const candidates = [
+      ...chatStickers.map(s => s.id),
+      ...customIds,
+      ...currentLibrary.value.map(m => m.id),
+      ...libraryMetadata.value.map(m => m.id),
+    ]
+
+    const normalizedRaw = normalizeStickerKey(raw)
+    const normalizedMatch = candidates.find(c => normalizeStickerKey(c) === normalizedRaw)
+    if (normalizedMatch)
+      return normalizedMatch
+
+    // Match against user-facing custom sticker labels and builtin descriptions
+    const labelMatch = currentLibrary.value.find(m => normalizeStickerKey(m.label) === normalizedRaw)
+      ?? libraryMetadata.value.find(m => normalizeStickerKey(m.label) === normalizedRaw)
+    if (labelMatch)
+      return labelMatch.id
+
+    const descMatch = chatStickers.find(s => normalizeStickerKey(s.description) === normalizedRaw)
+    if (descMatch)
+      return descMatch.id
+
+    const inputTokens = stripKnownStickerPrefix(tokenizeStickerId(raw))
+    if (inputTokens.length === 0)
+      return undefined
+    const inputSet = new Set(inputTokens)
+
+    let best: string | undefined
+    let bestShared = 0
+    let bestLen = Number.POSITIVE_INFINITY
+    for (const candidate of candidates) {
+      const customMeta = currentLibrary.value.find(m => m.id === candidate)
+        ?? libraryMetadata.value.find(m => m.id === candidate)
+      const builtinMeta = chatStickers.find(s => s.id === candidate)
+
+      const candidateTokens = [
+        ...stripKnownStickerPrefix(tokenizeStickerId(candidate)),
+        ...(customMeta ? stripKnownStickerPrefix(tokenizeStickerId(customMeta.label)) : []),
+        ...(builtinMeta ? stripKnownStickerPrefix(tokenizeStickerId(builtinMeta.description)) : []),
+      ]
+      const uniqueCandidateTokens = [...new Set(candidateTokens)]
+      const shared = uniqueCandidateTokens.filter(t => inputSet.has(t)).length
+      if (shared === 0)
+        continue
+      if (shared > bestShared || (shared === bestShared && uniqueCandidateTokens.length < bestLen)) {
+        best = candidate
+        bestShared = shared
+        bestLen = uniqueCandidateTokens.length
+      }
+    }
+    return best
   }
 
   /**
@@ -71,16 +171,41 @@ export const useStickersStore = Pinia.defineStore('stickers', () => {
       return objectUrlCache.get(id)
     }
 
+    const resolved = resolveStickerId(id) ?? id
+    const resolvedBuiltin = resolved === id
+      ? undefined
+      : chatStickers.find(s => s.id === resolved)
+    if (resolvedBuiltin) {
+      return resolvedBuiltin.src
+    }
+    if (resolved !== id && objectUrlCache.has(resolved)) {
+      const cached = objectUrlCache.get(resolved)!
+      objectUrlCache.set(id, cached)
+      return cached
+    }
+
+    // NOTICE: persisted cards strip embedded dataUrls, but a freshly imported
+    // card (or a failed blob unpack) may still carry one — use it before giving up.
     try {
-      const blob = await localforage.getItem<Blob>(`sticker-data-${id}`)
+      const airiCardStore = useAiriCardStore()
+      const dataUrl = airiCardStore.activeCard?.extensions?.airi?.stickers?.[resolved]?.dataUrl
+      if (dataUrl)
+        return dataUrl
+    }
+    catch {}
+
+    try {
+      const blob = await localforage.getItem<Blob>(`sticker-data-${resolved}`)
       if (blob) {
         const url = URL.createObjectURL(blob)
-        objectUrlCache.set(id, url)
+        objectUrlCache.set(resolved, url)
+        if (resolved !== id)
+          objectUrlCache.set(id, url)
         return url
       }
     }
     catch (err) {
-      console.error(`[StickersStore] Failed to fetch sticker ${id}:`, err)
+      console.error(`[StickersStore] Failed to fetch sticker ${id} (resolved: ${resolved}):`, err)
     }
     return undefined
   }
@@ -124,6 +249,92 @@ export const useStickersStore = Pinia.defineStore('stickers', () => {
   }
 
   /**
+   * Update or rename an existing sticker
+   */
+  async function updateSticker(oldId: string, updates: {
+    id?: string
+    label?: string
+    file?: File | Blob
+    characterId?: string
+    mimeType?: string
+  }): Promise<string> {
+    const targetId = updates.id ? updates.id.trim() : oldId
+
+    try {
+      // 1. If ID changed, move binary data in IndexedDB
+      if (targetId !== oldId) {
+        let blob = updates.file
+        if (!blob) {
+          blob = (await localforage.getItem<Blob>(`sticker-data-${oldId}`)) ?? undefined
+        }
+        if (blob) {
+          await localforage.setItem(`sticker-data-${targetId}`, blob)
+          await localforage.removeItem(`sticker-data-${oldId}`)
+        }
+
+        // Clean up object URL cache
+        if (objectUrlCache.has(oldId)) {
+          URL.revokeObjectURL(objectUrlCache.get(oldId)!)
+          objectUrlCache.delete(oldId)
+        }
+        if (objectUrlCache.has(targetId)) {
+          URL.revokeObjectURL(objectUrlCache.get(targetId)!)
+          objectUrlCache.delete(targetId)
+        }
+
+        // Update libraryMetadata
+        const oldEntry = libraryMetadata.value.find(m => m.id === oldId)
+        if (oldEntry) {
+          libraryMetadata.value = libraryMetadata.value.filter(m => m.id !== oldId && m.id !== targetId)
+          libraryMetadata.value.push({
+            ...oldEntry,
+            id: targetId,
+            label: updates.label !== undefined ? updates.label : oldEntry.label,
+            originalName: updates.file ? ((updates.file as File).name || `${targetId}.png`) : oldEntry.originalName,
+            mimeType: updates.mimeType ?? (updates.file ? (updates.file.type || 'image/png') : oldEntry.mimeType),
+            characterId: updates.characterId || oldEntry.characterId,
+          })
+        }
+
+        // Update any active placements
+        for (const p of activePlacements.value) {
+          if (p.stickerId === oldId) {
+            p.stickerId = targetId
+          }
+        }
+      }
+      else {
+        // ID remains same
+        if (updates.file) {
+          await localforage.setItem(`sticker-data-${targetId}`, updates.file)
+          if (objectUrlCache.has(targetId)) {
+            URL.revokeObjectURL(objectUrlCache.get(targetId)!)
+            objectUrlCache.delete(targetId)
+          }
+        }
+
+        const idx = libraryMetadata.value.findIndex(m => m.id === targetId)
+        if (idx >= 0) {
+          const prev = libraryMetadata.value[idx]
+          libraryMetadata.value[idx] = {
+            ...prev,
+            label: updates.label !== undefined ? updates.label : prev.label,
+            originalName: updates.file ? ((updates.file as File).name || `${targetId}.png`) : prev.originalName,
+            mimeType: updates.mimeType ?? (updates.file ? (updates.file.type || 'image/png') : prev.mimeType),
+            characterId: updates.characterId || prev.characterId,
+          }
+        }
+      }
+
+      return targetId
+    }
+    catch (err) {
+      console.error(`[StickersStore] Failed to update sticker ${oldId}:`, err)
+      throw err
+    }
+  }
+
+  /**
    * Remote a sticker from the library
    */
   async function deleteSticker(id: string) {
@@ -152,9 +363,11 @@ export const useStickersStore = Pinia.defineStore('stickers', () => {
    */
   function spawnSticker(idOrLabel: string, options: { x?: number, y?: number, duration?: number } = {}) {
     const builtin = chatStickers.find(s => s.id === idOrLabel || s.description.toLowerCase() === idOrLabel.toLowerCase())
-    const sticker = builtin
-      ? { id: builtin.id, label: builtin.description }
-      : currentLibrary.value.find(m => m.id === idOrLabel || m.label === idOrLabel)
+    const resolvedId = builtin ? builtin.id : (resolveStickerId(idOrLabel) ?? idOrLabel)
+    const resolvedBuiltin = chatStickers.find(s => s.id === resolvedId)
+    const sticker = resolvedBuiltin
+      ? { id: resolvedBuiltin.id, label: resolvedBuiltin.description }
+      : currentLibrary.value.find(m => m.id === resolvedId || m.label === idOrLabel)
     if (!sticker) {
       const availableBuiltin = chatStickers.map(s => s.id).join(', ')
       const availableCustom = currentLibrary.value.map(s => s.label).join(', ')
@@ -226,6 +439,132 @@ export const useStickersStore = Pinia.defineStore('stickers', () => {
     }
   }
 
+  // Background removal (lazy singleton; worker lifecycle owned by the adapter).
+  let bgAdapter: BackgroundRemovalAdapter | null = null
+  let bgAdapterLoading: Promise<BackgroundRemovalAdapter> | null = null
+
+  /**
+   * Pre-cutout blobs, keyed by sticker id. Session-only and never persisted —
+   * the source of truth for `revertTransparency`.
+   */
+  const transparencyOriginals = new Map<string, Blob>()
+
+  async function ensureBgAdapter(
+    onProgress?: (phase: 'loading-model' | 'segmenting', percent?: number) => void,
+    signal?: AbortSignal,
+  ): Promise<BackgroundRemovalAdapter> {
+    if (bgAdapter) {
+      const state = bgAdapter.state
+      if (state === 'ready' || state === 'processing' || state === 'loading')
+        return bgAdapter
+      // NOTICE: a previous load failed, or the host restarted/tore down the
+      // worker without a model (phase 'idle'/'error'/'terminated'). The old
+      // code returned the dead adapter here, bricking the feature until app
+      // restart with "Model not loaded". Rebuild instead so retry just works.
+      try {
+        bgAdapter.terminate()
+      }
+      catch {}
+      bgAdapter = null
+      bgAdapterLoading = null
+    }
+    if (!bgAdapterLoading) {
+      bgAdapterLoading = (async () => {
+        const adapter = createBackgroundRemovalAdapter()
+        try {
+          await adapter.load(
+            p => onProgress?.('loading-model', typeof p?.percent === 'number' ? p.percent : undefined),
+            signal ? { signal } : undefined,
+          )
+        }
+        catch (err) {
+          bgAdapterLoading = null
+          adapter.terminate()
+          throw err
+        }
+        bgAdapter = adapter
+        return adapter
+      })()
+    }
+    return bgAdapterLoading
+  }
+
+  /**
+   * Run a raw image blob through IS-Net anime and return a transparent PNG cutout.
+   * Blob-in/Blob-out building block shared by the upload dialog (pre-save)
+   * and `makeTransparent` (stored stickers).
+   */
+  async function removeImageBackground(
+    blob: Blob,
+    options?: BackgroundRemovalOptions,
+  ): Promise<CutoutBlob> {
+    const adapter = await ensureBgAdapter(options?.onProgress, options?.signal)
+    options?.signal?.throwIfAborted()
+
+    const imageData = await blobToImageData(blob)
+    options?.onProgress?.('segmenting')
+    const cutout = await adapter.processImage(imageData, {
+      signal: options?.signal,
+      sensitivity: options?.sensitivity ?? 65,
+    })
+    const outBlob = await imageDataToPngBlob(cutout) as CutoutBlob
+    outBlob.maskData = cutout.maskData
+    outBlob.sourceImageData = imageData
+    return outBlob
+  }
+
+  /**
+   * Re-composite a cutout blob with a new sensitivity value using cached mask data.
+   * Zero model latency (instant canvas update).
+   */
+  async function recomputeCutoutBlob(
+    sourceImageData: ImageData,
+    maskData: Uint8Array,
+    sensitivity = 65,
+  ): Promise<Blob> {
+    const updated = applyAlphaMask(sourceImageData, maskData, sensitivity)
+    return imageDataToPngBlob(updated)
+  }
+
+  /**
+   * Strip the background of a stored sticker via IS-Net anime and replace its binary
+   * with a transparent PNG. The pre-cutout blob is retained in memory so the
+   * operation can be reverted within the session.
+   */
+  async function makeTransparent(
+    id: string,
+    options?: BackgroundRemovalOptions,
+  ): Promise<void> {
+    const blob = await localforage.getItem<Blob>(`sticker-data-${id}`)
+    if (!blob)
+      throw new Error(`No sticker data for ${id}`)
+
+    options?.signal?.throwIfAborted()
+
+    if (!transparencyOriginals.has(id))
+      transparencyOriginals.set(id, blob)
+
+    const outBlob = await removeImageBackground(blob, options)
+    await updateSticker(id, { file: outBlob, mimeType: 'image/png' })
+  }
+
+  function hasTransparencyBackup(id: string): boolean {
+    return transparencyOriginals.has(id)
+  }
+
+  /**
+   * Restore the pre-cutout blob kept by `makeTransparent`. Returns false when
+   * there is nothing to revert.
+   */
+  async function revertTransparency(id: string): Promise<boolean> {
+    const original = transparencyOriginals.get(id)
+    if (!original)
+      return false
+    await updateSticker(id, { file: original })
+    transparencyOriginals.delete(id)
+    return true
+  }
+
   // --- Internals ---
 
   // Automatic cleanup of expired stickers
@@ -235,25 +574,61 @@ export const useStickersStore = Pinia.defineStore('stickers', () => {
     activePlacements.value = activePlacements.value.filter(p => !p.expiresAt || p.expiresAt > now)
 
     if (import.meta.env.DEV && activePlacements.value.length !== initialCount) {
-      // NOTICE: `console.info` (not `console.log`) because eslint's no-console
-      // only allows warn/error/info.
-      console.info(`[StickersStore] Purged ${initialCount - activePlacements.value.length} expired stickers.`)
+      console.log(`[StickersStore] Purged ${initialCount - activePlacements.value.length} expired stickers.`)
     }
   }, 2000)
+
+  /**
+   * Slap a sticker to the desktop via the Electron widget MPA if available,
+   * falling back to in-DOM placement on web or stage surfaces.
+   */
+  async function slapSticker(idOrLabel: string, options: { weight?: number, pos?: string, ttlMs?: number } = {}) {
+    const builtin = chatStickers.find(s => s.id === idOrLabel || s.description.toLowerCase() === idOrLabel.toLowerCase())
+    const resolvedId = builtin ? builtin.id : (resolveStickerId(idOrLabel) ?? idOrLabel)
+
+    if (typeof window !== 'undefined') {
+      const win = window as any
+      if (typeof win.spawnSticker === 'function') {
+        return await win.spawnSticker(resolvedId, options)
+      }
+      if (win.electron?.ipcRenderer?.invoke) {
+        return await win.electron.ipcRenderer.invoke('eventa:invoke:electron:windows:widgets:add', [{
+          componentName: 'sticker',
+          componentProps: {
+            stickerId: resolvedId,
+            weight: options.weight ?? 0.5,
+            pos: options.pos ?? 'random',
+          },
+          ttlMs: options.ttlMs ?? 0,
+        }])
+      }
+    }
+
+    // Web / non-electron fallback: spawn in-DOM placement on stage
+    return spawnSticker(resolvedId)
+  }
 
   return {
     libraryMetadata,
     currentLibrary,
     standaloneMode,
     activePlacements,
+    resolveStickerId,
     getStickerUrl,
     addSticker,
+    updateSticker,
     deleteSticker,
     spawnSticker,
+    slapSticker,
     removePlacement,
     updatePlacement,
     clearPlacements,
     clearLibrary,
+    removeImageBackground,
+    recomputeCutoutBlob,
+    makeTransparent,
+    revertTransparency,
+    hasTransparencyBackup,
     chatStickers,
   }
 })
