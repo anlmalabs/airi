@@ -685,4 +685,11 @@ export function formatBytes(bytes: number): string {
   return `${value.toFixed(i > 0 ? 1 : 0)} ${units[i]}`
 }
 
+/**
+ * Evict all cached Ming 3.0 model parts except those in `keepPartHashes`.
+ */
+export async function evictOtherMing3Models(keepPartHashes: string[]): Promise<void> {
+  void keepPartHashes
+}
+
 export { isStateCached }

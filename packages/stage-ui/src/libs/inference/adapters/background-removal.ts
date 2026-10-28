@@ -1,7 +1,7 @@
 /**
  * Background removal inference adapter.
  *
- * Talks to the Xenova/modnet worker over the Eventa inference contract
+ * Talks to the IS-Net anime background-removal worker over the Eventa inference contract
  * (`libs/inference/contract.ts`): load is a server-streaming invoke (progress
  * then a terminal `ready`); process is a unary invoke whose mask buffer is
  * transferred back zero-copy. Worker lifecycle and device-loss resilience are
@@ -16,6 +16,7 @@ import { createContext } from '@moeru/eventa/adapters/webworkers'
 import { defaultPerfTracer } from '@proj-airi/stage-shared'
 
 import { removeInferenceStatus, updateInferenceStatus } from '../../../composables/use-inference-status'
+import { applyAlphaMask } from '../../stickers/image-convert'
 import { MODEL_NAMES, TIMEOUTS } from '../constants'
 import { backgroundRemovalLoadEvent, backgroundRemovalProcessEvent, consumeLoadStream, signalWithTimeout } from '../contract'
 import { MODEL_VRAM_ESTIMATES } from '../coordinator'
@@ -36,13 +37,14 @@ export interface BackgroundRemovalAdapter {
 
   /**
    * Remove the background from an image.
-   * Returns a new ImageData with the background alpha set to 0.
+   * Returns a new ImageData with the background alpha set according to mask and sensitivity.
+   * Also attaches `maskData` to the returned ImageData for instantaneous re-compositing.
    * Pass `options.signal` to cancel; rejects with `InferenceAbortError`.
    */
   processImage: (
     imageData: ImageData,
-    options?: { signal?: AbortSignal },
-  ) => Promise<ImageData>
+    options?: { signal?: AbortSignal, sensitivity?: number },
+  ) => Promise<ImageData & { maskData: Uint8Array }>
 
   /** Terminate the worker */
   terminate: () => void
@@ -142,8 +144,8 @@ export function createBackgroundRemovalAdapter(): BackgroundRemovalAdapter {
 
   async function processImage(
     imageData: ImageData,
-    options?: { signal?: AbortSignal },
-  ): Promise<ImageData> {
+    options?: { signal?: AbortSignal, sensitivity?: number },
+  ): Promise<ImageData & { maskData: Uint8Array }> {
     throwIfAborted(options?.signal)
     // Model-not-loaded is a request-level rejection, not a worker death: sentinel
     // it so the outer catch rejects without tearing the worker down (mirrors
@@ -180,15 +182,9 @@ export function createBackgroundRemovalAdapter(): BackgroundRemovalAdapter {
         throw error
       }
 
-      const output = new ImageData(
-        new Uint8ClampedArray(imageData.data),
-        imageData.width,
-        imageData.height,
-      )
       const maskData = result.maskData
-      for (let i = 0; i < maskData.length; i++) {
-        output.data[4 * i + 3] = maskData[i]
-      }
+      const output = applyAlphaMask(imageData, maskData, options?.sensitivity ?? 65) as ImageData & { maskData: Uint8Array }
+      output.maskData = maskData
 
       host.setPhase('ready')
       host.recordSuccess()

@@ -13,8 +13,100 @@ import { useChatSessionStore } from './session-store'
 // archive-session creation, per-bucket LLM distillations, STMM persists, and a
 // session-timeline rewrite across many awaits — a superseded generation must
 // abort before any of those writes land on live state. See
-// docs/project-hmr-resilience-architecture.md Strategies C & E.
 let compactionEpoch = 0
+/** Post-compaction target ceiling as a fraction of contextWidth so winnowed sessions have headroom. */
+export const WINNOW_TARGET_BUDGET_RATIO = 0.75
+
+export function extractCompactionMessageText(msg: any): string {
+  if (!msg)
+    return ''
+  if (typeof msg.content === 'string')
+    return msg.content
+  if (Array.isArray(msg.content)) {
+    return msg.content
+      .filter((part: any) => part && typeof part === 'object' && part.type === 'text' && typeof part.text === 'string')
+      .map((part: any) => part.text)
+      .join('\n')
+  }
+  return ''
+}
+
+export function estimateMessageListTokens(messages: any[]): number {
+  return messages.reduce((sum, msg) => {
+    const text = extractCompactionMessageText(msg)
+    return sum + estimateTokens(text || '')
+  }, 0)
+}
+
+export interface WinnowTurnWindow {
+  id: string
+  text: string
+  messages: any[]
+}
+
+export function buildWinnowCompactionWindows(
+  toCompact: any[],
+  characterName = 'Assistant',
+  windowSize = 2,
+): WinnowTurnWindow[] {
+  const windows: WinnowTurnWindow[] = []
+  let currentMsgs: any[] = []
+  let currentLines: string[] = []
+
+  const flushWindow = () => {
+    if (currentMsgs.length === 0)
+      return
+    windows.push({
+      id: `w${windows.length}`,
+      text: currentLines.join('\n'),
+      messages: currentMsgs,
+    })
+    currentMsgs = []
+    currentLines = []
+  }
+
+  for (const msg of toCompact) {
+    const text = extractCompactionMessageText(msg).trim()
+    if (!text)
+      continue
+    const roleLabel = msg.role === 'user' ? 'User' : characterName
+    currentMsgs.push(msg)
+    currentLines.push(`${roleLabel}: ${text}`)
+    if (currentMsgs.length >= windowSize) {
+      flushWindow()
+    }
+  }
+  flushWindow()
+
+  return windows
+}
+
+export function capWinnowSurvivorsToBudget(
+  candidates: any[],
+  baseTokens: number,
+  threshold?: number,
+  targetRatio = WINNOW_TARGET_BUDGET_RATIO,
+): any[] {
+  if (!threshold || threshold <= 0 || candidates.length === 0)
+    return candidates
+
+  const maxAllowedTokens = Math.floor(threshold * targetRatio)
+  let remainingBudget = maxAllowedTokens - baseTokens
+  if (remainingBudget <= 0)
+    return []
+
+  const selectedReverse: any[] = []
+  for (let i = candidates.length - 1; i >= 0; i--) {
+    const msg = candidates[i]
+    const msgTokens = estimateTokens(extractCompactionMessageText(msg) || '')
+    if (msgTokens <= remainingBudget) {
+      selectedReverse.push(msg)
+      remainingBudget -= msgTokens
+    }
+  }
+
+  return selectedReverse.reverse()
+}
 
 export const useCompactionStore = defineStore('chat-compaction', () => {
   const chatSession = useChatSessionStore()

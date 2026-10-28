@@ -1,6 +1,6 @@
-import type { ExternalFriend, Peer, SameAccountDevice } from '@proj-airi/stage-shared'
+import type { ExternalFriend, Peer, SameAccountDevice, VaultDeviceMap } from '@proj-airi/stage-shared'
 
-import { extractHandleAlias } from '@proj-airi/stage-shared'
+import { extractHandleAlias, mergeSameAccountDevices, toVaultDeviceMap } from '@proj-airi/stage-shared'
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 
@@ -166,6 +166,19 @@ export const usePeersStore = defineStore('peers', () => {
       await persist()
     }
   }
+  function toVaultDeviceMapForSync(): VaultDeviceMap {
+    return toVaultDeviceMap(roster.value.filter(p => p.relationship === 'same-account') as SameAccountDevice[])
+  }
+
+  async function mergeVaultDevices(vaultDevices: VaultDeviceMap) {
+    if (!isInitialized.value)
+      await init()
+    const localDevices = roster.value.filter(p => p.relationship === 'same-account') as SameAccountDevice[]
+    const mergedDevices = mergeSameAccountDevices(localDevices, vaultDevices)
+    const friends = roster.value.filter(p => p.relationship !== 'same-account')
+    roster.value = [...mergedDevices, ...friends]
+    await persist()
+  }
 
   return {
     roster,
@@ -177,5 +190,7 @@ export const usePeersStore = defineStore('peers', () => {
     upsertPeer,
     removePeer,
     renameLocalDevice,
+    toVaultDeviceMapForSync,
+    mergeVaultDevices,
   }
 })
