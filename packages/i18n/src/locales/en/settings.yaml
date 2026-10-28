@@ -261,6 +261,10 @@ settings:
         vectorClocks: 'Vector clocks'
         syncNow: 'Sync Now'
         lastSync: 'Last sync'
+      messaging-friends:
+        title: 'Friends & Companions'
+        description: 'Connect your devices, manage trusted friends, and configure
+          autonomous nap-chat'
   modules:
     libp2p:
       title: 'Local Mesh (libp2p)'

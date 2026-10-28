@@ -137,6 +137,15 @@ export function useModulesList() {
       category: 'messaging',
     },
     {
+      id: 'messaging-friends',
+      name: t('settings.pages.modules.messaging-friends.title'),
+      description: t('settings.pages.modules.messaging-friends.description'),
+      icon: 'i-solar:users-group-two-rounded-bold-duotone',
+      to: '/settings/modules/messaging-friends',
+      configured: true,
+      category: 'messaging',
+    },
+    {
       id: 'x',
       name: t('settings.pages.modules.x.title'),
       description: t('settings.pages.modules.x.description'),

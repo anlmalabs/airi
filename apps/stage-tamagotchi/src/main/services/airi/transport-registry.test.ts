@@ -6,7 +6,13 @@ import { createTransportRegistry } from './transport-registry'
 
 function makeAdapter(id: string, requiresExternalRelay = false): TransportAdapter {
   return {
-    id,
+    id: id as TransportAdapter['id'],
+    status: 'disconnected',
+    start: async () => {},
+    stop: async () => {},
+    sendToPeer: async () => false,
+    broadcast: async () => {},
+    subscribe: async () => () => {},
     capabilities: {
       isLocalOnly: !requiresExternalRelay,
       supportsMultiParty: true,
@@ -16,7 +22,6 @@ function makeAdapter(id: string, requiresExternalRelay = false): TransportAdapte
     initialize: async () => {},
     dispose: async () => {},
     publish: async () => {},
-    subscribe: () => () => {},
   }
 }
 

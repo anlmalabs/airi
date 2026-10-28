@@ -1,3 +1,4 @@
 export { default as GamingFactorio } from './GamingFactorio.vue'
 export { default as MessagingDiscord } from './MessagingDiscord.vue'
+export { default as MessagingFriends } from './MessagingFriends.vue'
 export { default as X } from './X.vue'

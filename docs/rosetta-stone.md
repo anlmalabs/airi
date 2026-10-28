@@ -411,6 +411,16 @@ Implementation guide: [Director orchestration](../.agents/skills/airi-director-o
 - **Dialog sessions**: per-pair nap-chat sessions live in the `napchat` universe (`universeId`), keyed by `napPeerId` on `ChatSessionMeta` — see `packages/stage-ui/src/stores/chat/session-store.ts` `createSession`
 - **Idle predicate**: `packages/stage-ui/src/stores/proactivity-telemetry.ts` — `isUserAway(currentIdleSec?, afkThresholdMinutes)` (pure; an absent reading means the user is present)
 
+### Transport Seam (pluggable adapters)
+Canonical contract (upstream-aligned):
+- **Canonical module**: `packages/stage-shared/src/transport.ts` — `TransportAdapter` interface: `TransportId` (`'cloudflare-edge' | 'libp2p-mesh' | 'loopback'`), `TransportStatus`, `TransportMessage<T>`, `TransportHandler<T>`, and the upstream lifecycle/delivery methods `start` / `stop` / `sendToPeer` / `broadcast` / `subscribe`. Also exports `CloudflareEdgeTransportConfig` and `createLoopbackTransport()`.
+- **Optional sovereignty extras (fork-only, all optional so upstream adapters port verbatim)**: `TransportCapabilities` (`isLocalOnly`, `supportsMultiParty`, `supportsMeshGossip`, `requiresExternalRelay`) exposed as `capabilities?`, plus `initialize?`, `dispose?`, `publish?`. Sovereign builds gate relay-requiring adapters via `capabilities?.requiresExternalRelay`.
+- **Back-compat shim**: `packages/stage-shared/src/transport-adapter.ts` re-exports `./transport` (legacy `@proj-airi/stage-shared/transport-adapter` imports keep resolving).
+- **Registry contract**: `packages/stage-shared/src/transport-registry.ts` — `TransportRegistry` (`register` / `get` / `list` / `initialize(id, sovereign)`).
+- **Sovereign implementation**: `apps/stage-tamagotchi/src/main/services/airi/transport-registry.ts` — `createTransportRegistry()`; refuses adapters with `requiresExternalRelay === true` in sovereign mode and calls `adapter.initialize ?? adapter.start`.
+- **Adapters**: `apps/stage-tamagotchi/src/main/services/airi/libp2p/transport-adapter.ts` (`createLibp2pTransportAdapter`); `packages/stage-ui/src/libs/transport/cloudflare-edge-transport.ts`; `packages/stage-ui/src/libs/transport/embassy-socket.ts`.
+- **Exports**: `packages/stage-shared/src/index.ts` re-exports `./transport` (and the legacy `./transport-adapter`); `packages/stage-shared/package.json` exposes a `./transport` subpath.
+
 ---
 
 ## 10. Engine & Subsystems
