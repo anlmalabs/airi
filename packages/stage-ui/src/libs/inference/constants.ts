@@ -29,6 +29,7 @@ export const MODEL_NAMES = {
   MOONDREAM: 'moondream2',
   ATTENTION_GUARD: 'attention-guard',
   LAYA: 'laya',
+  MING3: 'ming-3.0-tts-0.5b-mix',
 } as const
 
 /**

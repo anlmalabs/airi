@@ -268,6 +268,7 @@ describe('cloudflare store persistence & corruption recovery', () => {
 
     store.cfOAuthTokens = {
       accessToken: 'valid_access_token',
+      refreshToken: 'valid_refresh_token',
       accountId: 'mock-account-id',
     }
 

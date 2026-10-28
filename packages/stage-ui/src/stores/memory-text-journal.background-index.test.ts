@@ -143,11 +143,11 @@ function makeEntries(count: number): TextJournalEntry[] {
 }
 
 function indexedIds(call: number): string[] {
-  return (h.indexDocuments.mock.calls[call]?.[0] as unknown as Array<{ id: string }>).map(d => d.id)
+  return (((h.indexDocuments.mock.calls as unknown as unknown[])[call] as unknown as unknown[])?.[0] as unknown as Array<{ id: string }>).map(d => d.id)
 }
 
 function persistedWatermarks(): number[] {
-  return h.persist.mock.calls.map(call => (call[1] as unknown as { watermark?: number } | undefined)?.watermark ?? -1)
+  return h.persist.mock.calls.map(call => ((call as unknown as unknown[])[1] as unknown as { watermark?: number } | undefined)?.watermark ?? -1)
 }
 
 describe('text journal background index pass', () => {
@@ -222,7 +222,7 @@ describe('text journal background index pass', () => {
     await store.backgroundIndexAll()
 
     for (const call of h.indexDocuments.mock.calls) {
-      expect((call[0] as unknown[]).length).toBeLessThanOrEqual(25)
+      expect(((call as unknown as unknown[])[0] as unknown as unknown[]).length).toBeLessThanOrEqual(25)
     }
   })
 

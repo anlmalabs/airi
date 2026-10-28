@@ -15,8 +15,8 @@ function uint8ArrayToHex(arr: Uint8Array): string {
   return Array.from(arr).map(b => b.toString(16).padStart(2, '0')).join('')
 }
 
-async function loadTemplate(): Promise<{ fetch: (req: Request) => Promise<Response> }> {
-  const mod: any = await import(
+async function loadTemplate(): Promise<{ fetch: (req: Request, env?: unknown) => Promise<Response> }> {
+  const mod = await import(
     `data:text/javascript;charset=utf-8,${encodeURIComponent(CORS_PROXY_WORKER_SCRIPT)}`,
   )
   return mod.default

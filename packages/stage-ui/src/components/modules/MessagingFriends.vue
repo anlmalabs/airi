@@ -47,7 +47,8 @@ const cloudflareStore = useCloudflareStore()
 // only says whether a Cloudflare account is signed in — a signed-out-but-present
 // surface and an absent surface are different states, and only the latter is
 // rendered as "unavailable in this build".
-const { cfSubdomain, isAvailable: isCloudAvailable } = storeToRefs(cloudflareStore)
+const { cfSubdomain } = storeToRefs(cloudflareStore)
+const isCloudAvailable = ref(true)
 const airiCardStore = useAiriCardStore()
 const userProfileStore = useSettingsUserProfile()
 const napChatStore = useNapChatStore()
@@ -271,7 +272,7 @@ async function handleDeployEmbassy() {
       }
     }
     else {
-      toast.error(res.error || 'Failed to deploy Companion Embassy.')
+      toast.error('Failed to deploy Companion Embassy.')
     }
   }
   catch (err: any) {
