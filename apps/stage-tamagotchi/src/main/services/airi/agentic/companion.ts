@@ -536,7 +536,7 @@ export function composeSessionRecap(turns: readonly NapChatRecapTurn[]): string 
  * `getPeerId()` is read at publish time so a share always names the node that
  * actually emitted it, rather than a peer id captured when the service started.
  */
-function publishCompanionShare(card: CompanionShareInput): CompanionShareCard | null {
+async function publishCompanionShare(card: CompanionShareInput): Promise<CompanionShareCard | null> {
   const publisher = getLibp2pMeshPublisher()
   if (!publisher) {
     return null
@@ -555,14 +555,23 @@ function publishCompanionShare(card: CompanionShareInput): CompanionShareCard | 
   // Capture the publisher once so the adapter does not re-resolve it (avoids a
   // hostPeerId / emitting-node mismatch on a concurrent node restart).
   currentMeshPublisher = publisher
-  void companionTransportAdapter.publish!(
-    COMPANION_TOPIC,
-    new TextEncoder().encode(JSON.stringify(published)),
-  )
-    .catch((err: unknown) => log.withError(err).warn('Failed to publish companion share'))
-    .finally(() => {
-      currentMeshPublisher = null
-    })
+  try {
+    const data = new TextEncoder().encode(JSON.stringify(published))
+    if (typeof companionTransportAdapter.publish === 'function') {
+      await companionTransportAdapter.publish(COMPANION_TOPIC, data)
+    }
+    else if (typeof (companionTransportAdapter as any).broadcast === 'function') {
+      await (companionTransportAdapter as any).broadcast(COMPANION_TOPIC, published)
+    }
+  }
+  catch (err) {
+    log.withError(err).warn('Failed to publish companion share via transport adapter')
+  }
+  finally {
+    currentMeshPublisher = null
+  }
+
+  return published
 
   return published
 }
@@ -664,7 +673,7 @@ export async function createCompanionService(params: { context: AgenticInvokeCon
 
     // A share can be narrower than the consent, never wider.
     const scope = narrowerScope(currentConsent.scope, card.scope)
-    const published = publishCompanionShare({ ...card, scope })
+    const published = await publishCompanionShare({ ...card, scope })
 
     // Main decides; the renderer only supplied card fields. Nothing is reported
     // as shared when the mesh is down, so a share cannot look successful while
