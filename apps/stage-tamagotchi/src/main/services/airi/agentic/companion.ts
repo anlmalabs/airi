@@ -36,9 +36,11 @@ import { BrowserWindow, ipcMain } from 'electron'
 import { boolean, number, object, optional, picklist } from 'valibot'
 
 import { createConfig } from '../../../libs/electron/persistence'
+import { registerCloudAdapters } from '../cloudflare'
 import { getLibp2pMeshPublisher } from '../libp2p'
 import { listPairedDevices } from '../libp2p/pairing'
 import { createLibp2pTransportAdapter } from '../libp2p/transport-adapter'
+import { createTransportRegistry } from '../transport-registry'
 
 const log = useLogg('agentic-companion').useGlobalConfig()
 
@@ -50,6 +52,9 @@ const log = useLogg('agentic-companion').useGlobalConfig()
 // adapter does not re-resolve the mesh publisher (which would open a
 // resolve-time window where hostPeerId and the emitting node could diverge).
 let currentMeshPublisher: ReturnType<typeof getLibp2pMeshPublisher> = null
+
+const transportRegistry = createTransportRegistry()
+registerCloudAdapters(transportRegistry)
 
 const companionTransportAdapter: TransportAdapter = createLibp2pTransportAdapter({
   deps: {
